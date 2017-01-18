@@ -216,20 +216,83 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 
 	b.dynamic.BindingMap[bindingID] = details
 
-	var uid interface{}
 	var exist bool
+
+	var nfsprmres interface{}
+	var uid interface{}
+	var gid interface{}
+
 	if uid, exist = details.Parameters["uid"]; !exist {
 		return brokerapi.Binding{}, errors.New("config requires a \"uid\"")
 	}
 
-	var gid interface{}
 	if gid, exist = details.Parameters["gid"]; !exist {
 		return brokerapi.Binding{}, errors.New("config requires a \"gid\"")
 	}
 
 	mountConfig := map[string]interface{}{"source": fmt.Sprintf("nfs://%s?uid=%s&gid=%s", instanceDetails.Share, uid.(string), gid.(string))}
+	logger.Info("NFS Source " + EscapedToString(mountConfig["source"].(string)))
 
-	logger.Info("HELLO_REALLY " + EscapedToString(mountConfig["source"].(string)))
+	//
+
+	lstopt := map[string]int{
+		// Fuse_NFS Options
+		"allow_other":1,
+		"allow_root":1,
+		"default_permissions":1,
+		"nfs_uid":2,
+		"nfs_gid":2,
+		"direct_io":1,
+		"auto_cache":1,
+		"kernel_cache":1,
+		"large_read":1,
+		"hard_remove":1,
+		"fsname":2,
+		"subtype":2,
+		"blkdev":1,
+		"intr":1,
+		"mount_max":2,
+		"max_read":2,
+		"max_readahead":2,
+		"async_read":1,
+		"sync_read":1,
+		"umask":2,
+		"entry_timeout":2,
+		"negative_timeout":2,
+		"attr_timeout":2,
+		"ac_attr_timeout":2,
+		"nonempty":1,
+		"intr_signal":2,
+		"use_ino":1,
+		"readdir_ino":1,
+		"debug":1,
+		// NFS native options
+	}
+
+	for k, v := range lstopt {
+
+		if nfsprmres, exist = details.Parameters[k]; !exist {
+			continue
+		}
+
+		if v == 1 {
+			// Mode flag
+
+			if nfsprmres == "" || nfsprmres == "0" || nfsprmres == 0 || nfsprmres == false {
+				continue
+			}
+
+			mountConfig = map[string]interface{}{"source": fmt.Sprintf("%s&%s", mountConfig["source"].(string), k)}
+		}
+
+		if v == 2 {
+			// Mode key = value
+
+			mountConfig = map[string]interface{}{"source": fmt.Sprintf("%s&%s=%s", mountConfig["source"].(string), k, nfsprmres.(string))}
+		}
+	}
+
+	logger.Info("Nfs Share + Options URL : " + EscapedToString(mountConfig[v].(string)))
 
 	return brokerapi.Binding{
 		Credentials: struct{}{}, // if nil, cloud controller chokes on response
