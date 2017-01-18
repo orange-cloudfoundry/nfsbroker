@@ -237,14 +237,28 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 
 	lstopt := map[string]int{
 		// Fuse_NFS Options
+		"fusenfs_allow_other_own_ids":1,
+
+		"fusenfs_uid":2,
+		"fusenfs_gid":2,
+
+		// libNFS options
+
+		// Fuse Option (see man mount.fuse)
+		"default_permissions":1,
+		"multithread":1,
+
+		/* not still implemented
 		"allow_other":1,
 		"allow_root":1,
-		"default_permissions":1,
-		"nfs_uid":2,
-		"nfs_gid":2,
+		"umask":2,
 		"direct_io":1,
-		"auto_cache":1,
 		"kernel_cache":1,
+		"auto_cache":1,
+		"entry_timeout":2,
+		"negative_timeout":2,
+		"attr_timeout":2,
+		"ac_attr_timeout":2,
 		"large_read":1,
 		"hard_remove":1,
 		"fsname":2,
@@ -256,17 +270,12 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 		"max_readahead":2,
 		"async_read":1,
 		"sync_read":1,
-		"umask":2,
-		"entry_timeout":2,
-		"negative_timeout":2,
-		"attr_timeout":2,
-		"ac_attr_timeout":2,
 		"nonempty":1,
 		"intr_signal":2,
 		"use_ino":1,
 		"readdir_ino":1,
 		"debug":1,
-		// NFS native options
+		*/
 	}
 
 	for k, v := range lstopt {
