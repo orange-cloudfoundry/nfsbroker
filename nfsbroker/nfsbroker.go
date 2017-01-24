@@ -238,7 +238,6 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 	lstopt := map[string]int{
 		// Fuse_NFS Options
 		"fusenfs_allow_other_own_ids":1,
-
 		"fusenfs_uid":2,
 		"fusenfs_gid":2,
 
@@ -247,8 +246,6 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 		// Fuse Option (see man mount.fuse)
 		"default_permissions":1,
 		"multithread":1,
-
-		/* not still implemented
 		"allow_other":1,
 		"allow_root":1,
 		"umask":2,
@@ -275,7 +272,6 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 		"use_ino":1,
 		"readdir_ino":1,
 		"debug":1,
-		*/
 	}
 
 	for k, v := range lstopt {
@@ -287,17 +283,25 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 		if v == 1 {
 			// Mode flag
 
-			if nfsprmres == "" || nfsprmres == "0" || nfsprmres == 0 || nfsprmres == false {
+			valb, err := nfsprmres.(bool)
+
+			if err == nil && valb == true {
+				mountConfig = append(mountConfig, k, true)
 				continue
 			}
 
-			mountConfig = map[string]interface{}{"source": fmt.Sprintf("%s&%s", mountConfig["source"].(string), k)}
+			vali, err := nfsprmres.(int)
+
+			if err == nil && vali == 1 {
+				mountConfig = append(mountConfig, k, true)
+				continue
+			}
 		}
 
 		if v == 2 {
 			// Mode key = value
 
-			mountConfig = map[string]interface{}{"source": fmt.Sprintf("%s&%s=%s", mountConfig["source"].(string), k, nfsprmres.(string))}
+			mountConfig = append(mountConfig, k, nfsprmres.(string))
 		}
 	}
 
