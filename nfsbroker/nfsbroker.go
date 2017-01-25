@@ -218,7 +218,6 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 
 	var exist bool
 
-	var nfsprmres interface{}
 	var uid interface{}
 	var gid interface{}
 
@@ -231,81 +230,28 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 	}
 
 	mountConfig := map[string]interface{}{"source": fmt.Sprintf("nfs://%s?uid=%s&gid=%s", instanceDetails.Share, uid.(string), gid.(string))}
-	logger.Info("NFS Source " + EscapedToString(mountConfig["source"].(string)))
 
-	//
 
-	lstopt := map[string]int{
-		// Fuse_NFS Options
-		"fusenfs_allow_other_own_ids":1,
-		"fusenfs_uid":2,
-		"fusenfs_gid":2,
+	for k, v := range details.Parameters {
 
-		// libNFS options
-
-		// Fuse Option (see man mount.fuse)
-		"default_permissions":1,
-		"multithread":1,
-		"allow_other":1,
-		"allow_root":1,
-		"umask":2,
-		"direct_io":1,
-		"kernel_cache":1,
-		"auto_cache":1,
-		"entry_timeout":2,
-		"negative_timeout":2,
-		"attr_timeout":2,
-		"ac_attr_timeout":2,
-		"large_read":1,
-		"hard_remove":1,
-		"fsname":2,
-		"subtype":2,
-		"blkdev":1,
-		"intr":1,
-		"mount_max":2,
-		"max_read":2,
-		"max_readahead":2,
-		"async_read":1,
-		"sync_read":1,
-		"nonempty":1,
-		"intr_signal":2,
-		"use_ino":1,
-		"readdir_ino":1,
-		"debug":1,
-	}
-
-	for k, v := range lstopt {
-
-		if nfsprmres, exist = details.Parameters[k]; !exist {
+		if k == "uid" || k == "gid" {
 			continue
 		}
 
-		if v == 1 {
-			// Mode flag
+		logger.Debug("Add one config ", lager.Data{"Key": k, "value": v})
 
-			valb, err := nfsprmres.(bool)
+		val, err := v.(bool)
 
-			if err == nil && valb == true {
-				mountConfig = append(mountConfig, k, true)
-				continue
+		if err {
+			if val {
+				mountConfig[k] = true
 			}
-
-			vali, err := nfsprmres.(int)
-
-			if err == nil && vali == 1 {
-				mountConfig = append(mountConfig, k, true)
-				continue
-			}
-		}
-
-		if v == 2 {
-			// Mode key = value
-
-			mountConfig = append(mountConfig, k, nfsprmres.(string))
+		} else {
+			mountConfig[k] = v
 		}
 	}
 
-	logger.Info("Nfs Share + Options URL : " + EscapedToString(mountConfig[v].(string)))
+	logger.Info("Volume Service Binding", lager.Data{"Driver": "nfsv3driver", "MountConfig": mountConfig})
 
 	return brokerapi.Binding{
 		Credentials: struct{}{}, // if nil, cloud controller chokes on response

@@ -230,6 +230,31 @@ var _ = Describe("Broker", func() {
 				Expect(share).To(Equal(fmt.Sprintf("nfs://server:/some-share?uid=%s&gid=%s", uid, gid)))
 			})
 
+			Context("Given UID, GID and options to be pass to driver", func() {
+				BeforeEach(func() {
+					bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{
+						nfsbroker.Username: "principal name",
+						nfsbroker.Secret:   "some keytab data",
+						"uid":              uid,
+						"gid":              gid,
+						"any_options":      "testSuccess",
+					},
+					}
+				})
+
+				It("passes with options", func() {
+					binding, err := broker.Bind(ctx, instanceID, "binding-id", bindDetails)
+					Expect(err).NotTo(HaveOccurred())
+					mc := binding.VolumeMounts[0].Device.MountConfig
+					share, ok := mc["source"].(string)
+					Expect(ok).To(BeTrue())
+					Expect(share).To(Equal(fmt.Sprintf("nfs://server:/some-share?uid=%s&gid=%s", uid, gid)))
+					opts, ok := mc["any_options"].(string)
+					Expect(ok).To(BeTrue())
+					Expect(opts).To(Equal("testSuccess"))
+				})
+			})
+
 			Context("given the uid is not supplied", func() {
 				BeforeEach(func() {
 					bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{
