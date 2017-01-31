@@ -249,9 +249,8 @@ var _ = Describe("Broker", func() {
 					share, ok := mc["source"].(string)
 					Expect(ok).To(BeTrue())
 					Expect(share).To(Equal(fmt.Sprintf("nfs://server:/some-share?uid=%s&gid=%s", uid, gid)))
-					opts, ok := mc["any_options"].(string)
-					Expect(ok).To(BeTrue())
-					Expect(opts).To(Equal("testSuccess"))
+					_, ok = mc["any_options"].(string)
+					Expect(ok).To(BeFalse())
 				})
 			})
 
