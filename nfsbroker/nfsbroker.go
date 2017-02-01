@@ -65,14 +65,15 @@ type lock interface {
 }
 
 type Broker struct {
-	logger  lager.Logger
-	dataDir string
-	os      osshim.Os
-	ioutil  ioutilshim.Ioutil
-	mutex   lock
-	clock   clock.Clock
-	static  staticState
-	dynamic dynamicState
+	logger     lager.Logger
+	dataDir    string
+	os         osshim.Os
+	ioutil     ioutilshim.Ioutil
+	mutex      lock
+	clock      clock.Clock
+	static     staticState
+	dynamic    dynamicState
+	configPath string
 }
 
 type Config struct {
@@ -92,6 +93,7 @@ func New(
 	a3 interface{},
 	a4 interface{},
 	a5 interface{},
+	configPath string,
 ) *Broker {
 
 	theBroker := Broker{
@@ -109,6 +111,7 @@ func New(
 			InstanceMap: map[string]ServiceInstance{},
 			BindingMap:  map[string]brokerapi.BindDetails{},
 		},
+		configPath: configPath,
 	}
 
 	theBroker.restoreDynamicState()
@@ -228,7 +231,7 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 
 	myCnf := new(Config)
 
-	if err := myCnf.getConf("config.yml", logger); err != nil {
+	if err := myCnf.getConf(b.configPath, logger); err != nil {
 		return brokerapi.Binding{}, err;
 	}
 

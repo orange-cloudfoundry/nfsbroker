@@ -57,6 +57,7 @@ var _ = Describe("Broker", func() {
 				nil,
 				nil,
 				nil,
+				"example.yml",
 			)
 		})
 
@@ -457,6 +458,7 @@ var _ = Describe("Broker", func() {
 				nil,
 				nil,
 				nil,
+				"example.yml",
 			)
 
 			_, err = broker.Bind(ctx, "service-name", "whatever", bindDetails)
@@ -479,6 +481,7 @@ var _ = Describe("Broker", func() {
 				nil,
 				nil,
 				nil,
+				"example.yml",
 			)
 
 			_, err := broker.Bind(ctx, "service-name", "whatever", bindDetails)

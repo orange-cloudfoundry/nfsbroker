@@ -54,6 +54,12 @@ var password = flag.String(
 	"basic auth password to verify on incoming requests",
 )
 
+var configPath = flag.String(
+	"config",
+	"config.yml",
+	"Specify the config file path",
+)
+
 func main() {
 	parseCommandLine()
 
@@ -101,7 +107,7 @@ func createServer(logger lager.Logger) ifrit.Runner {
 	serviceBroker := nfsbroker.New(logger,
 		*serviceName, *serviceId,
 		*dataDir, &osshim.OsShim{}, &ioutilshim.IoutilShim{}, clock.NewClock(),
-		nil, nil, nil, nil, nil, nil)
+		nil, nil, nil, nil, nil, nil, configPath)
 
 	credentials := brokerapi.BrokerCredentials{Username: *username, Password: *password}
 	handler := brokerapi.New(serviceBroker, logger.Session("broker-api"), credentials)
