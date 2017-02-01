@@ -133,6 +133,7 @@ var _ = Describe("Knfsbroker Main", func() {
 			listenAddr         string
 			tempDir            string
 			username, password string
+			config             string
 
 			process ifrit.Process
 		)
@@ -142,6 +143,7 @@ var _ = Describe("Knfsbroker Main", func() {
 			username = "admin"
 			password = "password"
 			tempDir = os.TempDir()
+			config = "./example.yml"
 
 			args = append(args, "-listenAddr", listenAddr)
 			args = append(args, "-username", username)
@@ -182,6 +184,31 @@ var _ = Describe("Knfsbroker Main", func() {
 			BeforeEach(func() {
 				args = append(args, "-serviceName", "something")
 				args = append(args, "-serviceId", "someguid")
+			})
+
+			It("should pass arguments though to catalog", func() {
+				resp, err := httpDoWithAuth("GET", "/v2/catalog", nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(200))
+
+				bytes, err := ioutil.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+
+				var catalog brokerapi.CatalogResponse
+				err = json.Unmarshal(bytes, &catalog)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(catalog.Services[0].Name).To(Equal("something"))
+				Expect(catalog.Services[0].ID).To(Equal("someguid"))
+				Expect(catalog.Services[0].Plans[0].ID).To(Equal("Existing"))
+				Expect(catalog.Services[0].Plans[0].Name).To(Equal("Existing"))
+				Expect(catalog.Services[0].Plans[0].Description).To(Equal("a filesystem you have already provisioned by contacting <URL>"))
+			})
+		})
+
+		Context("given config argument", func() {
+			BeforeEach(func() {
+				args = append(args, "-config", config)
 			})
 
 			It("should pass arguments though to catalog", func() {
