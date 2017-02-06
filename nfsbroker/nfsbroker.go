@@ -2,25 +2,20 @@ package nfsbroker
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"path"
 	"reflect"
-
 	"sync"
 
-	"path"
-
-	"context"
+	"crypto/md5"
 
 	"code.cloudfoundry.org/clock"
-	"code.cloudfoundry.org/goshims/ioutilshim"
 	"code.cloudfoundry.org/goshims/osshim"
 	"code.cloudfoundry.org/lager"
 	"github.com/pivotal-cf/brokerapi"
-	"strings"
 )
 
 const (
@@ -31,11 +26,6 @@ const (
 const (
 	Username string = "kerberosPrincipal"
 	Secret   string = "kerberosKeytab"
-)
-
-var (
-	ErrNoMountTargets         = errors.New("no mount targets found")
-	ErrMountTargetUnavailable = errors.New("mount target not in available state")
 )
 
 type staticState struct {
@@ -51,7 +41,7 @@ type ServiceInstance struct {
 	Share            string
 }
 
-type dynamicState struct {
+type DynamicState struct {
 	InstanceMap map[string]ServiceInstance
 	BindingMap  map[string]brokerapi.BindDetails
 }
@@ -65,43 +55,39 @@ type Broker struct {
 	logger  lager.Logger
 	dataDir string
 	os      osshim.Os
-	ioutil  ioutilshim.Ioutil
 	mutex   lock
 	clock   clock.Clock
 	static  staticState
-	dynamic dynamicState
+	dynamic DynamicState
+	store   Store
 }
 
 func New(
 	logger lager.Logger,
 	serviceName, serviceId, dataDir string,
 	os osshim.Os,
-	ioutil ioutilshim.Ioutil,
 	clock clock.Clock,
-	a0 interface{}, a1 interface{}, a2 interface{},
-	a3 interface{},
-	a4 interface{},
-	a5 interface{},
+	store Store,
 ) *Broker {
 
 	theBroker := Broker{
 		logger:  logger,
 		dataDir: dataDir,
 		os:      os,
-		ioutil:  ioutil,
 		mutex:   &sync.Mutex{},
 		clock:   clock,
+		store:   store,
 		static: staticState{
 			ServiceName: serviceName,
 			ServiceId:   serviceId,
 		},
-		dynamic: dynamicState{
+		dynamic: DynamicState{
 			InstanceMap: map[string]ServiceInstance{},
 			BindingMap:  map[string]brokerapi.BindDetails{},
 		},
 	}
 
-	theBroker.restoreDynamicState()
+	theBroker.store.Restore(logger, &theBroker.dynamic)
 
 	return &theBroker
 }
@@ -114,17 +100,17 @@ func (b *Broker) Services(_ context.Context) []brokerapi.Service {
 	return []brokerapi.Service{{
 		ID:            b.static.ServiceId,
 		Name:          b.static.ServiceName,
-		Description:   "NFS volumes secured with Kerberos (see: https://example.com/knfs-volume-release/)",
+		Description:   "Existing NFSv3 volumes (see: https://code.cloudfoundry.org/nfs-volume-release/)",
 		Bindable:      true,
 		PlanUpdatable: false,
-		Tags:          []string{"knfs"},
+		Tags:          []string{"nfs"},
 		Requires:      []brokerapi.RequiredPermission{PermissionVolumeMount},
 
 		Plans: []brokerapi.ServicePlan{
 			{
 				Name:        "Existing",
 				ID:          "Existing",
-				Description: "a filesystem you have already provisioned by contacting <URL>",
+				Description: "A preexisting filesystem",
 			},
 		},
 	}}
@@ -164,7 +150,7 @@ func (b *Broker) Provision(context context.Context, instanceID string, details b
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
-	b.persist(b.dynamic)
+	defer b.store.Save(logger, &b.dynamic, instanceID, "")
 
 	return brokerapi.ProvisionedServiceSpec{IsAsync: false}, nil
 }
@@ -180,6 +166,9 @@ func (b *Broker) Deprovision(context context.Context, instanceID string, details
 	_, instanceExists := b.dynamic.InstanceMap[instanceID]
 	if !instanceExists {
 		return brokerapi.DeprovisionServiceSpec{}, brokerapi.ErrInstanceDoesNotExist
+	} else {
+		delete(b.dynamic.InstanceMap, instanceID)
+		b.store.Save(logger, &b.dynamic, instanceID, "")
 	}
 
 	return brokerapi.DeprovisionServiceSpec{IsAsync: false, OperationData: "deprovision"}, nil
@@ -187,13 +176,13 @@ func (b *Broker) Deprovision(context context.Context, instanceID string, details
 
 func (b *Broker) Bind(context context.Context, instanceID string, bindingID string, details brokerapi.BindDetails) (brokerapi.Binding, error) {
 	logger := b.logger.Session("bind")
-	logger.Info("start")
+	logger.Info("start", lager.Data{"bindingID": bindingID, "details": details})
 	defer logger.Info("end")
 
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
-	defer b.persist(b.dynamic)
+	defer b.store.Save(logger, &b.dynamic, "", bindingID)
 
 	logger.Info("Starting nfsbroker bind")
 	instanceDetails, ok := b.dynamic.InstanceMap[instanceID]
@@ -229,7 +218,12 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 
 	mountConfig := map[string]interface{}{"source": fmt.Sprintf("nfs://%s?uid=%s&gid=%s", instanceDetails.Share, uid.(string), gid.(string))}
 
-	logger.Info("HELLO_REALLY " + EscapedToString(mountConfig["source"].(string)))
+	s, err := b.hash(mountConfig)
+	if err != nil {
+		logger.Error("error-calculating-volume-id", err, lager.Data{"config": mountConfig, "bindingID": bindingID, "instanceID": instanceID})
+		return brokerapi.Binding{}, err
+	}
+	volumeId := fmt.Sprintf("%s-%s", instanceID, s)
 
 	return brokerapi.Binding{
 		Credentials: struct{}{}, // if nil, cloud controller chokes on response
@@ -239,11 +233,22 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 			Driver:       "nfsv3driver",
 			DeviceType:   "shared",
 			Device: brokerapi.SharedDevice{
-				VolumeId:    instanceID,
+				VolumeId:    volumeId,
 				MountConfig: mountConfig,
 			},
 		}},
 	}, nil
+}
+
+func (b *Broker) hash(mountConfig map[string]interface{}) (string, error) {
+	var (
+		bytes []byte
+		err   error
+	)
+	if bytes, err = json.Marshal(mountConfig); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", md5.Sum(bytes)), nil
 }
 
 func (b *Broker) Unbind(context context.Context, instanceID string, bindingID string, details brokerapi.UnbindDetails) error {
@@ -254,7 +259,7 @@ func (b *Broker) Unbind(context context.Context, instanceID string, bindingID st
 	b.mutex.Lock()
 	defer b.mutex.Unlock()
 
-	defer b.persist(b.dynamic)
+	defer b.store.Save(logger, &b.dynamic, "", bindingID)
 
 	if _, ok := b.dynamic.InstanceMap[instanceID]; !ok {
 		return brokerapi.ErrInstanceDoesNotExist
@@ -305,28 +310,6 @@ func (b *Broker) bindingConflicts(bindingID string, details brokerapi.BindDetail
 	return false
 }
 
-func (b *Broker) persist(state interface{}) {
-	logger := b.logger.Session("serialize-state")
-	logger.Info("start")
-	defer logger.Info("end")
-
-	stateFile := filepath.Join(b.dataDir, fmt.Sprintf("%s-services.json", b.static.ServiceName))
-
-	stateData, err := json.Marshal(state)
-	if err != nil {
-		b.logger.Error("failed-to-marshall-state", err)
-		return
-	}
-
-	err = b.ioutil.WriteFile(stateFile, stateData, os.ModePerm)
-	if err != nil {
-		b.logger.Error(fmt.Sprintf("failed-to-write-state-file: %s", stateFile), err)
-		return
-	}
-
-	logger.Info("state-saved", lager.Data{"state-file": stateFile})
-}
-
 func evaluateContainerPath(parameters map[string]interface{}, volId string) string {
 	if containerPath, ok := parameters["mount"]; ok && containerPath != "" {
 		return containerPath.(string)
@@ -352,39 +335,4 @@ func readOnlyToMode(ro bool) string {
 		return "r"
 	}
 	return "rw"
-}
-
-func (b *Broker) restoreDynamicState() {
-	logger := b.logger.Session("restore-services")
-	logger.Info("start")
-	defer logger.Info("end")
-
-	stateFile := filepath.Join(b.dataDir, fmt.Sprintf("%s-services.json", b.static.ServiceName))
-
-	serviceData, err := b.ioutil.ReadFile(stateFile)
-	if err != nil {
-		b.logger.Error(fmt.Sprintf("failed-to-read-state-file: %s", stateFile), err)
-		return
-	}
-
-	dynamicState := dynamicState{}
-	err = json.Unmarshal(serviceData, &dynamicState)
-	if err != nil {
-		b.logger.Error(fmt.Sprintf("failed-to-unmarshall-state from state-file: %s", stateFile), err)
-		return
-	}
-	logger.Info("state-restored", lager.Data{"state-file": stateFile})
-	b.dynamic = dynamicState
-}
-
-func EscapedToString(source string) string {
-	if strings.Contains(source, `\\u0026`) {
-		return "Double Escaped"
-	} else if strings.Contains(source, `\u0026`) {
-		return "Single Escaped"
-	} else if strings.Contains(source, `&`) {
-		return "UnEscaped"
-	} else {
-		return "Not Found"
-	}
 }

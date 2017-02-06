@@ -1,0 +1,11 @@
+---
+  buildpack: go_buildpack
+  env:
+    GOPACKAGENAME: nfsbroker
+    GOVERSION: go1.7
+    DBSERVICENAME: p-mysql #service name for db service as seen in `cf marketplace`
+    DBDRIVERNAME: mysql #mysql or postgres
+    SERVICENAME: nfs #service name to publish in the marketplace
+    BROKERUSER: <replace me>
+    BROKERPASS: <replace me>
+    LOGLEVEL: info #error, warn, info, debug
