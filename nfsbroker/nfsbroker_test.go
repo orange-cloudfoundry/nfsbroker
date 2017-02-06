@@ -13,34 +13,28 @@ import (
 
 	"fmt"
 
-	"code.cloudfoundry.org/goshims/ioutilshim/ioutil_fake"
 	"code.cloudfoundry.org/goshims/osshim/os_fake"
 	"code.cloudfoundry.org/lager"
 	"code.cloudfoundry.org/nfsbroker/nfsbroker"
+	"code.cloudfoundry.org/nfsbroker/nfsbrokerfakes"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-type dynamicState struct {
-	InstanceMap map[string]nfsbroker.ServiceInstance
-	BindingMap  map[string]brokerapi.BindDetails
-}
-
 var _ = Describe("Broker", func() {
 	var (
-		broker     *nfsbroker.Broker
-		fakeOs     *os_fake.FakeOs
-		fakeIoutil *ioutil_fake.FakeIoutil
-		logger     lager.Logger
-		ctx        context.Context
+		broker    *nfsbroker.Broker
+		fakeOs    *os_fake.FakeOs
+		logger    lager.Logger
+		ctx       context.Context
+		fakeStore *nfsbrokerfakes.FakeStore
 	)
 
 	BeforeEach(func() {
 		logger = lagertest.NewTestLogger("test-broker")
 		ctx = context.TODO()
 		fakeOs = &os_fake.FakeOs{}
-		fakeIoutil = &ioutil_fake.FakeIoutil{}
-
+		fakeStore = &nfsbrokerfakes.FakeStore{}
 	})
 
 	Context("when creating first time", func() {
@@ -49,15 +43,9 @@ var _ = Describe("Broker", func() {
 				logger,
 				"service-name", "service-id", "/fake-dir",
 				fakeOs,
-				fakeIoutil,
 				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				"example.yml",
+				fakeStore,
+                                "example.yml",
 			)
 		})
 
@@ -66,15 +54,15 @@ var _ = Describe("Broker", func() {
 				result := broker.Services(ctx)[0]
 				Expect(result.ID).To(Equal("service-id"))
 				Expect(result.Name).To(Equal("service-name"))
-				Expect(result.Description).To(Equal("NFS volumes secured with Kerberos (see: https://example.com/knfs-volume-release/)"))
+				Expect(result.Description).To(Equal("Existing NFSv3 volumes (see: https://code.cloudfoundry.org/nfs-volume-release/)"))
 				Expect(result.Bindable).To(Equal(true))
 				Expect(result.PlanUpdatable).To(Equal(false))
-				Expect(result.Tags).To(ContainElement("knfs"))
+				Expect(result.Tags).To(ContainElement("nfs"))
 				Expect(result.Requires).To(ContainElement(brokerapi.RequiredPermission("volume_mount")))
 
 				Expect(result.Plans[0].Name).To(Equal("Existing"))
 				Expect(result.Plans[0].ID).To(Equal("Existing"))
-				Expect(result.Plans[0].Description).To(Equal("a filesystem you have already provisioned by contacting <URL>"))
+				Expect(result.Plans[0].Description).To(Equal("A preexisting filesystem"))
 			})
 		})
 
@@ -111,8 +99,9 @@ var _ = Describe("Broker", func() {
 			})
 
 			It("should write state", func() {
-				_, data, _ := fakeIoutil.WriteFileArgsForCall(fakeIoutil.WriteFileCallCount() - 1)
-				Expect(string(data)).To(Equal(`{"InstanceMap":{"some-instance-id":{"service_id":"","plan_id":"Existing","organization_guid":"","space_guid":"","Share":"server:/some-share"}},"BindingMap":{}}`))
+				_, data, id, _ := fakeStore.SaveArgsForCall(fakeStore.SaveCallCount() - 1)
+				Expect(id).To(Equal(instanceID))
+				Expect(data.InstanceMap[instanceID].PlanID).To(Equal("Existing"))
 			})
 
 			Context("create-service was given invalid JSON", func() {
@@ -179,6 +168,37 @@ var _ = Describe("Broker", func() {
 
 				It("should fail", func() {
 					Expect(err).To(Equal(brokerapi.ErrInstanceDoesNotExist))
+				})
+			})
+
+			Context("given an existing instance", func() {
+				var (
+					spec brokerapi.ProvisionedServiceSpec
+				)
+
+				BeforeEach(func() {
+					instanceID = "some-instance-id"
+
+					configuration := map[string]interface{}{"share": "server:/some-share"}
+					buf := &bytes.Buffer{}
+					_ = json.NewEncoder(buf).Encode(configuration)
+					provisionDetails = brokerapi.ProvisionDetails{PlanID: "Existing", RawParameters: json.RawMessage(buf.Bytes())}
+					asyncAllowed = false
+
+					spec, err = broker.Provision(ctx, instanceID, provisionDetails, asyncAllowed)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("should succeed", func() {
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				It("save state", func() {
+					Expect(fakeStore.SaveCallCount()).To(Equal(2))
+					_, data, id, _ := fakeStore.SaveArgsForCall(fakeStore.SaveCallCount() - 1)
+					Expect(id).To(Equal(instanceID))
+					_, exists := data.InstanceMap[instanceID]
+					Expect(exists).To(BeFalse())
 				})
 			})
 
@@ -325,8 +345,8 @@ var _ = Describe("Broker", func() {
 				_, err := broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 				Expect(err).NotTo(HaveOccurred())
 
-				_, data, _ := fakeIoutil.WriteFileArgsForCall(fakeIoutil.WriteFileCallCount() - 1)
-				Expect(string(data)).To(Equal(fmt.Sprintf(`{"InstanceMap":{"some-instance-id":{"service_id":"","plan_id":"Existing","organization_guid":"","space_guid":"","Share":"server:/some-share"}},"BindingMap":{"binding-id":{"app_guid":"guid","plan_id":"","service_id":"","parameters":{"gid":"%s","kerberosKeytab":"some keytab data","kerberosPrincipal":"principal name","uid":"%s"}}}}`, gid, uid)))
+				_, data, _, _ := fakeStore.SaveArgsForCall(fakeStore.SaveCallCount() - 1)
+				Expect(data.InstanceMap[instanceID].PlanID).To(Equal("Existing"))
 			})
 
 			It("errors if mode is not a boolean", func() {
@@ -342,11 +362,11 @@ var _ = Describe("Broker", func() {
 				Expect(binding.VolumeMounts[0].Driver).To(Equal("nfsv3driver"))
 			})
 
-			It("fills in the group id", func() {
+			It("fills in the volume id", func() {
 				binding, err := broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(binding.VolumeMounts[0].Device.VolumeId).To(Equal("some-instance-id"))
+				Expect(binding.VolumeMounts[0].Device.VolumeId).To(ContainSubstring("some-instance-id"))
 			})
 
 			Context("when the binding already exists", func() {
@@ -364,6 +384,34 @@ var _ = Describe("Broker", func() {
 					bindDetails.AppGUID = "different"
 					_, err := broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 					Expect(err).To(Equal(brokerapi.ErrBindingAlreadyExists))
+				})
+			})
+
+			Context("given another binding with the same share", func() {
+				var (
+					err error
+					bindSpec1 brokerapi.Binding
+				)
+
+				BeforeEach(func() {
+					bindSpec1, err = broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
+					Expect(err).NotTo(HaveOccurred())
+				})
+
+				Context("given different options", func() {
+					var (
+						bindSpec2 brokerapi.Binding
+					)
+					BeforeEach(func() {
+						bindDetails.Parameters["uid"] = "3000"
+						bindDetails.Parameters["gid"] = "3000"
+						bindSpec2, err = broker.Bind(ctx, "some-instance-id", "binding-id-2", bindDetails)
+						Expect(err).NotTo(HaveOccurred())
+					})
+
+					It("should issue a volume mount with a different volume ID", func() {
+						Expect(bindSpec1.VolumeMounts[0].Device.VolumeId).NotTo(Equal(bindSpec2.VolumeMounts[0].Device.VolumeId))
+					})
 				})
 			})
 
@@ -421,8 +469,8 @@ var _ = Describe("Broker", func() {
 				err := broker.Unbind(ctx, "some-instance-id", "binding-id", brokerapi.UnbindDetails{})
 				Expect(err).NotTo(HaveOccurred())
 
-				_, data, _ := fakeIoutil.WriteFileArgsForCall(fakeIoutil.WriteFileCallCount() - 1)
-				Expect(string(data)).To(Equal(`{"InstanceMap":{"some-instance-id":{"service_id":"","plan_id":"Existing","organization_guid":"","space_guid":"","Share":"server:/some-share"}},"BindingMap":{}}`))
+				_, data, _, _ := fakeStore.SaveArgsForCall(fakeStore.SaveCallCount() - 1)
+				Expect(data.InstanceMap[instanceID].PlanID).To(Equal("Existing"))
 			})
 		})
 
@@ -435,58 +483,33 @@ var _ = Describe("Broker", func() {
 			bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{nfsbroker.Username: "principal name", nfsbroker.Secret: "some keytab data", "uid": "1000", "gid": "1000"}}
 		})
 		It("should be able to bind to previously created service", func() {
-			fileContents, err := json.Marshal(dynamicState{
+			fileContents := nfsbroker.DynamicState{
 				InstanceMap: map[string]nfsbroker.ServiceInstance{
 					"service-name": {
 						Share: "server:/some-share",
 					},
 				},
 				BindingMap: map[string]brokerapi.BindDetails{},
-			})
-			Expect(err).NotTo(HaveOccurred())
-			fakeIoutil.ReadFileReturns(fileContents, nil)
+			}
+
+			fakeStore.RestoreStub = func(logger lager.Logger, state *nfsbroker.DynamicState) error {
+				*state = fileContents
+				return nil
+			}
 
 			broker = nfsbroker.New(
 				logger,
 				"service-name", "service-id", "/fake-dir",
 				fakeOs,
-				fakeIoutil,
 				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				"example.yml",
-			)
-
-			_, err = broker.Bind(ctx, "service-name", "whatever", bindDetails)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("shouldn't be able to bind to service from invalid state file", func() {
-			filecontents := "{serviceName: [some invalid state]}"
-			fakeIoutil.ReadFileReturns([]byte(filecontents[:]), nil)
-
-			broker = nfsbroker.New(
-				logger,
-				"service-name", "service-id", "/fake-dir",
-				fakeOs,
-				fakeIoutil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				nil,
-				"example.yml",
+				fakeStore,
+                                "example.yml",
 			)
 
 			_, err := broker.Bind(ctx, "service-name", "whatever", bindDetails)
-			Expect(err).To(HaveOccurred())
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 
 })
+

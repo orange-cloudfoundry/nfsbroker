@@ -113,14 +113,14 @@ func (r failRunner) Run(sigChan <-chan os.Signal, ready chan<- struct{}) error {
 	}
 }
 
-var _ = Describe("Knfsbroker Main", func() {
+var _ = Describe("nfsbroker Main", func() {
 	Context("Missing required args", func() {
 		It("shows usage", func() {
 			var args []string
 			volmanRunner := failRunner{
 				Name:       "nfsbroker",
 				Command:    exec.Command(binaryPath, args...),
-				StartCheck: "ERROR: Required parameter dataDir not defined.",
+				StartCheck: "Either dataDir or db parameters must be provided.",
 			}
 			process := ifrit.Invoke(volmanRunner)
 			ginkgomon.Kill(process) // this is only if incorrect implementation leaves process running
@@ -202,7 +202,7 @@ var _ = Describe("Knfsbroker Main", func() {
 				Expect(catalog.Services[0].ID).To(Equal("someguid"))
 				Expect(catalog.Services[0].Plans[0].ID).To(Equal("Existing"))
 				Expect(catalog.Services[0].Plans[0].Name).To(Equal("Existing"))
-				Expect(catalog.Services[0].Plans[0].Description).To(Equal("a filesystem you have already provisioned by contacting <URL>"))
+				Expect(catalog.Services[0].Plans[0].Description).To(Equal("A preexisting filesystem"))
 			})
 		})
 
