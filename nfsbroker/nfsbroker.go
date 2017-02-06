@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"io/ioutil"
 	"gopkg.in/yaml.v2"
+	"os"
 )
 
 const (
@@ -208,7 +209,15 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 		return brokerapi.Binding{}, brokerapi.ErrAppGuidNotProvided
 	}
 
-	mode, err := evaluateMode(details.Parameters)
+	var params interface{}
+
+	if err := json.Unmarshal(details.RawParameters, &params); err != nil {
+		return brokerapi.Binding{}, err
+	}
+
+	parameters := params.(map[string]interface{})
+
+	mode, err := evaluateMode(parameters)
 	if err != nil {
 		return brokerapi.Binding{}, err
 	}
@@ -225,7 +234,7 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 		return brokerapi.Binding{}, err;
 	}
 
-	if err := myCnf.filterArgs(details.Parameters, logger); err != nil {
+	if err := myCnf.filterArgs(parameters, logger); err != nil {
 		return brokerapi.Binding{}, err;
 	}
 
@@ -248,7 +257,7 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 	return brokerapi.Binding{
 		Credentials: struct{}{}, // if nil, cloud controller chokes on response
 		VolumeMounts: []brokerapi.VolumeMount{{
-			ContainerDir: evaluateContainerPath(details.Parameters, instanceID),
+			ContainerDir: evaluateContainerPath(parameters, instanceID),
 			Mode:         mode,
 			Driver:       "nfsv3driver",
 			DeviceType:   "shared",
@@ -371,29 +380,6 @@ func ignoreBindOpt(k string) bool {
 	}
 
 	return false
-}
-
-func (b *Broker) restoreDynamicState() {
-	logger := b.logger.Session("restore-services")
-	logger.Info("start")
-	defer logger.Info("end")
-
-	stateFile := filepath.Join(b.dataDir, fmt.Sprintf("%s-services.json", b.static.ServiceName))
-
-	serviceData, err := b.ioutil.ReadFile(stateFile)
-	if err != nil {
-		b.logger.Error(fmt.Sprintf("failed-to-read-state-file: %s", stateFile), err)
-		return
-	}
-
-	dynamicState := dynamicState{}
-	err = json.Unmarshal(serviceData, &dynamicState)
-	if err != nil {
-		b.logger.Error(fmt.Sprintf("failed-to-unmarshall-state from state-file: %s", stateFile), err)
-		return
-	}
-	logger.Info("state-restored", lager.Data{"state-file": stateFile})
-	b.dynamic = dynamicState
 }
 
 
