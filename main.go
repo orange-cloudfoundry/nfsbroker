@@ -102,10 +102,28 @@ var cfServiceName = flag.String(
 	"(optional) For CF pushed apps, the service name in VCAP_SERVICES where we should find database credentials.  dbDriver must be defined if this option is set, but all other db parameters will be extracted from the service binding.",
 )
 
-var configPath = flag.String(
-        "config",
-        "./config.yml",
-        "Specify the config file path",
+var sourceFlagAllowed = flag.String(
+	"sourceAllowed",
+	"",
+	"This is a comma separted list of parameters allowed to be send in share url. Each of this parameters can be specify by brokers",
+)
+
+var sourceFlagDefault = flag.String(
+	"sourceDefault",
+	"",
+	"This is a comma separted list of like params:value. This list specify default value of parameters. If parameters has default value and is not in allowed list, this default value become a forced value who's cannot be override",
+)
+
+var mountFlagAllowed = flag.String(
+	"mountAllowed",
+	"",
+	"This is a comma separted list of parameters allowed to be send in extra config. Each of this parameters can be specify by brokers",
+)
+
+var mountFlagDefault = flag.String(
+	"mountDefault",
+	"",
+	"This is a comma separted list of like params:value. This list specify default value of parameters. If parameters has default value and is not in allowed list, this default value become a forced value who's cannot be override",
 )
 
 func main() {
@@ -192,7 +210,10 @@ func createServer(logger lager.Logger) ifrit.Runner {
 
 	serviceBroker := nfsbroker.New(logger,
 		*serviceName, *serviceId,
-		*dataDir, &osshim.OsShim{}, clock.NewClock(), store, *configPath)
+		*dataDir, &osshim.OsShim{}, clock.NewClock(), store, nfsbroker.NewNfsBrokerConfig(
+			[]string{*sourceFlagAllowed, *sourceFlagDefault},
+			[]string{*mountFlagAllowed, *mountFlagDefault},
+		))
 
 	credentials := brokerapi.BrokerCredentials{Username: *username, Password: *password}
 	handler := brokerapi.New(serviceBroker, logger.Session("broker-api"), credentials)

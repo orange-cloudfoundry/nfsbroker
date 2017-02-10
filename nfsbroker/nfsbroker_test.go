@@ -19,6 +19,7 @@ import (
 	"code.cloudfoundry.org/nfsbroker/nfsbrokerfakes"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"strings"
 )
 
 var _ = Describe("Broker", func() {
@@ -45,7 +46,10 @@ var _ = Describe("Broker", func() {
 				fakeOs,
 				nil,
 				fakeStore,
-                                "example.yml",
+				nfsbroker.NewNfsBrokerConfig(
+					[]string{"uid,gid", ""},
+					[]string{"sloppy_mount,allow_other,allow_root,multithread,default_permissions,fusenfs_uid,fusenfs_gid", "sloppy_mount:true"},
+				),
 			)
 		})
 
@@ -255,7 +259,10 @@ var _ = Describe("Broker", func() {
 				mc := binding.VolumeMounts[0].Device.MountConfig
 				share, ok := mc["source"].(string)
 				Expect(ok).To(BeTrue())
-				Expect(share).To(Equal(fmt.Sprintf("nfs://server:/some-share?uid=%s&gid=%s", uid, gid)))
+				testUrl(share, "nfs://server:/some-share", []string{
+					fmt.Sprintf("uid=%s", uid),
+					fmt.Sprintf("gid=%s", gid),
+				})
 			})
 
 			Context("Given UID, GID and options to be pass to driver", func() {
@@ -265,6 +272,7 @@ var _ = Describe("Broker", func() {
 						nfsbroker.Secret:   "some keytab data",
 						"uid":              uid,
 						"gid":              gid,
+						"sloppy_mount":     true,
 						"any_options":      "testSuccess",
 					}
 
@@ -283,7 +291,10 @@ var _ = Describe("Broker", func() {
 					mc := binding.VolumeMounts[0].Device.MountConfig
 					share, ok := mc["source"].(string)
 					Expect(ok).To(BeTrue())
-					Expect(share).To(Equal(fmt.Sprintf("nfs://server:/some-share?uid=%s&gid=%s", uid, gid)))
+					testUrl(share, "nfs://server:/some-share", []string{
+						fmt.Sprintf("uid=%s", uid),
+						fmt.Sprintf("gid=%s", gid),
+					})
 					_, ok = mc["any_options"].(string)
 					Expect(ok).To(BeFalse())
 				})
@@ -616,7 +627,10 @@ var _ = Describe("Broker", func() {
 				fakeOs,
 				nil,
 				fakeStore,
-                                "example.yml",
+				nfsbroker.NewNfsBrokerConfig(
+					[]string{"uid,gid", ""},
+					[]string{"sloppy_mount,fusenfs_uid,fusenfs_gid,multithread,default_permissions", "sloppy_mount:true"},
+				),
 			)
 
 			_, err := broker.Bind(ctx, "service-name", "whatever", bindDetails)
@@ -626,3 +640,36 @@ var _ = Describe("Broker", func() {
 
 })
 
+func testUrl(url string, baseUrl string, params []string) {
+	urlPart := strings.SplitN(url, "?", 2)
+
+	if len(params) > 0 {
+		Expect(len(urlPart)).To(Equal(2))
+	} else {
+		Expect(len(urlPart)).To(Equal(1))
+	}
+
+	Expect(urlPart[0]).To(Equal(baseUrl))
+
+	if len(params) > 0 {
+		paramsPart := strings.Split(urlPart[1], "&")
+
+		for _,p := range params {
+			Expect(inArray(p, paramsPart)).To(BeTrue())
+		}
+
+		for _,p := range paramsPart {
+			Expect(inArray(p, params)).To(BeTrue())
+		}
+	}
+}
+
+func inArray (search string, array []string) bool {
+	for _,v := range array {
+		if v == search {
+			return true
+		}
+	}
+
+	return false
+}
