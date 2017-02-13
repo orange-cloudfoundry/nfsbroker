@@ -359,19 +359,3 @@ func readOnlyToMode(ro bool) string {
 	return "rw"
 }
 
-func ignoreBindOpt(k string) bool {
-
-	switch k {
-	case "mount":
-		return true
-	case "readonly":
-		return true
-	case Username:
-		return true
-	case Secret:
-		return true
-	}
-
-	return false
-}
-
