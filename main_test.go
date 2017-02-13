@@ -133,7 +133,6 @@ var _ = Describe("nfsbroker Main", func() {
 			listenAddr         string
 			tempDir            string
 			username, password string
-			config             string
 
 			process ifrit.Process
 		)
@@ -143,7 +142,6 @@ var _ = Describe("nfsbroker Main", func() {
 			username = "admin"
 			password = "password"
 			tempDir = os.TempDir()
-			config = "./example.yml"
 
 			args = append(args, "-listenAddr", listenAddr)
 			args = append(args, "-username", username)
@@ -208,7 +206,7 @@ var _ = Describe("nfsbroker Main", func() {
 
 		Context("given config argument", func() {
 			BeforeEach(func() {
-				args = append(args, "-config", config)
+				args = append(args, "-sourceAllowed", "uid,gid", "-mountAllowed", "nfs_uid,nfs_gid")
 			})
 
 			It("should pass arguments though to catalog", func() {

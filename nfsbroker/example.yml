@@ -1,4 +1,0 @@
----
-  source_params: "uid:,gid:"
-  mount_params: "allow_other:,allow_root:,sloppy_mount:true,default_permissions:,multithread:,fusenfs_uid:,fusenfs_gid:"
-
