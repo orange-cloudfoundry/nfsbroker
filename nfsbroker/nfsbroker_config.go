@@ -80,7 +80,7 @@ func (m * Config) setEntries(share string, opts map[string]interface{}, ignoreLi
 	m.sloppyMount 	 = m.mount.isSloppyMount()
 
 	for k,_ := range opts {
-		if !inArray(allowed, k){
+		if !inArray(allowed, k) {
 			errorList = append(errorList, k)
 		}
 	}
@@ -127,7 +127,6 @@ func (m *Config) getMountConfig() map[string]interface{} {
 
 func (m *ConfigDetails) readConfAllowed(flagString string) error {
 	m.allowed = strings.Split(flagString, ",")
-
 	return nil
 }
 
@@ -161,10 +160,12 @@ func (m *ConfigDetails) getMissMandatory() []string {
 	result := []string{}
 
 	for _,k := range m.mandatory {
-		if _,oko := m.options[k]; !oko {
-			if _,okf := m.forced[k]; !okf {
-				result = append(result, k)
-			}
+
+		_,oko := m.options[k];
+		_,okf := m.forced[k];
+
+		if !okf && !oko {
+			result = append(result, k)
 		}
 	}
 
@@ -209,7 +210,6 @@ func (m *ConfigDetails) isSloppyMount() bool {
 	}
 
 	if len(spm) > 0 {
-
 		if val,err := strconv.ParseBool(spm); err == nil {
 			return val
 		}
@@ -218,33 +218,41 @@ func (m *ConfigDetails) isSloppyMount() bool {
 	return false
 }
 
-func (m *ConfigDetails) uniformData (data interface{}, boolAsInt bool) string {
+func (m *ConfigDetails) uniformKeyData (key string, data interface{}) string {
+	switch key {
+	case "auto-traverse-mounts":
+		return m.uniformData(data, true)
 
-	var value string
+	case "dircache":
+		return m.uniformData(data, true)
+
+	}
+
+	return m.uniformData(data, false)
+}
+
+func (m *ConfigDetails) uniformData (data interface{}, boolAsInt bool) string {
 
 	switch data.(type) {
 	case int:
-		value = strconv.FormatInt(int64(data.(int)), 10)
+		return strconv.FormatInt(int64(data.(int)), 10)
 
 	case string:
-		value = data.(string)
+		return data.(string)
 
 	case bool:
 		if boolAsInt {
 			if data.(bool) {
-				value = "1"
+				return "1"
 			} else {
-				value = "0"
+				return "0"
 			}
 		} else {
-			value = strconv.FormatBool(data.(bool))
+			return strconv.FormatBool(data.(bool))
 		}
-
-	default:
-		value = ""
 	}
 
-	return value
+	return ""
 }
 
 func (m *ConfigDetails) parseUrl (url string, ignoreList []string) []string {
@@ -258,36 +266,29 @@ func (m *ConfigDetails) parseUrl (url string, ignoreList []string) []string {
 	}
 
 	for _, p := range strings.Split(part[1], "&") {
-
-		op := strings.SplitN(p, "=", 2)
-
-		if len (op) < 2 || len(op[1]) < 1 || op[1] == "" {
-			continue
+		if key := m.parseUrlParams(p, ignoreList); len(key) > 0 {
+			errorList = append(errorList, key)
 		}
 
-		if inArray(ignoreList, op[0]) {
-			continue
-		}
-
-		params := m.uniformData(op[1], false)
-
-		switch op[0] {
-		case "auto-traverse-mounts":
-			params = m.uniformData(op[1], true)
-
-		case "dircache":
-			params = m.uniformData(op[1], true)
-
-		}
-
-		if inArray(m.allowed, op[0]) {
-			m.options[op[0]] = params
-		} else {
-			errorList = append(errorList, op[0])
-		}
 	}
 
 	return errorList
+}
+
+func (m *ConfigDetails) parseUrlParams (urlParams string, ignoreList []string) string {
+
+	op := strings.SplitN(urlParams, "=", 2)
+
+	if len (op) < 2 || len(op[1]) < 1 || op[1] == "" || inArray(ignoreList, op[0]) {
+		return ""
+	}
+
+	if inArray(m.allowed, op[0]) {
+		m.options[op[0]] = m.uniformKeyData(op[0], op[1])
+		return ""
+	}
+
+	return op[0]
 }
 
 func (m *ConfigDetails) parseMap (entryList map[string]interface{}, ignoreList []string) []string {
@@ -298,16 +299,7 @@ func (m *ConfigDetails) parseMap (entryList map[string]interface{}, ignoreList [
 
 		value := m.uniformData(v, false)
 
-		if value == ""  {
-			continue
-		}
-
-		if inArray(ignoreList, k) {
-			continue
-		}
-
-		if inArray(m.allowed, k) {
-			m.options[k] = value
+		if value == ""  || inArray(ignoreList, k) {
 			continue
 		}
 
@@ -324,42 +316,25 @@ func (m *ConfigDetails) parseMap (entryList map[string]interface{}, ignoreList [
 func (m *ConfigDetails) makeParams (prefix string) []string {
 	params := []string{}
 
-	for k,v := range m.options {
+	for k,v := range m.makeConfig() {
 
 		if k == "sloppy_mount" {
 			continue
 		}
 
-		if val, err := strconv.ParseBool(v); err == nil {
-			if (val == true) {
+		if val, err := strconv.ParseBool(v.(string)); err == nil {
+			if val {
 				params = append(params, fmt.Sprintf("%s%s", prefix, k))
 			}
 			continue
 		}
 
-		if val, err := strconv.ParseInt(v, 10, 16); err == nil {
+		if val, err := strconv.ParseInt(v.(string), 10, 16); err == nil {
 			params = append(params, fmt.Sprintf("%s%s=%d", prefix, k, val))
 			continue
 		}
 
-		params = append(params, fmt.Sprintf("%s%s=%s", prefix, k, v))
-	}
-
-	for k,v := range m.forced {
-
-		if val, err := strconv.ParseBool(v); err == nil {
-			if (val == true) {
-				params = append(params, fmt.Sprintf("%s%s", prefix, k))
-			}
-			continue
-		}
-
-		if val, err := strconv.ParseInt(v, 10, 16); err == nil {
-			params = append(params, fmt.Sprintf("%s%s=%d", prefix, k, val))
-			continue
-		}
-
-		params = append(params, fmt.Sprintf("%s%s=%s", prefix, k, v))
+		params = append(params, fmt.Sprintf("%s%s=%s", prefix, k, v.(string)))
 	}
 
 	return params
