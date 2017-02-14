@@ -103,25 +103,25 @@ var cfServiceName = flag.String(
 )
 
 var sourceFlagAllowed = flag.String(
-	"sourceAllowed",
-	"",
+	"allowed-in-source",
+	"uid,gid",
 	"This is a comma separted list of parameters allowed to be send in share url. Each of this parameters can be specify by brokers",
 )
 
 var sourceFlagDefault = flag.String(
-	"sourceDefault",
+	"default-in-source",
 	"",
 	"This is a comma separted list of like params:value. This list specify default value of parameters. If parameters has default value and is not in allowed list, this default value become a forced value who's cannot be override",
 )
 
 var mountFlagAllowed = flag.String(
-	"mountAllowed",
+	"allowed-in-mount",
 	"",
 	"This is a comma separted list of parameters allowed to be send in extra config. Each of this parameters can be specify by brokers",
 )
 
 var mountFlagDefault = flag.String(
-	"mountDefault",
+	"default-in-mount",
 	"",
 	"This is a comma separted list of like params:value. This list specify default value of parameters. If parameters has default value and is not in allowed list, this default value become a forced value who's cannot be override",
 )
