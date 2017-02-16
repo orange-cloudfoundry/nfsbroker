@@ -203,5 +203,30 @@ var _ = Describe("nfsbroker Main", func() {
 				Expect(catalog.Services[0].Plans[0].Description).To(Equal("A preexisting filesystem"))
 			})
 		})
+
+		Context("given config argument", func() {
+			BeforeEach(func() {
+				args = append(args, "-sourceAllowed", "uid,gid", "-mountAllowed", "nfs_uid,nfs_gid")
+			})
+
+			It("should pass arguments though to catalog", func() {
+				resp, err := httpDoWithAuth("GET", "/v2/catalog", nil)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(200))
+
+				bytes, err := ioutil.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+
+				var catalog brokerapi.CatalogResponse
+				err = json.Unmarshal(bytes, &catalog)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(catalog.Services[0].Name).To(Equal("something"))
+				Expect(catalog.Services[0].ID).To(Equal("someguid"))
+				Expect(catalog.Services[0].Plans[0].ID).To(Equal("Existing"))
+				Expect(catalog.Services[0].Plans[0].Name).To(Equal("Existing"))
+				Expect(catalog.Services[0].Plans[0].Description).To(Equal("A preexisting filesystem"))
+			})
+		})
 	})
 })

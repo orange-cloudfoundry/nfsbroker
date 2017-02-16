@@ -19,6 +19,7 @@ import (
 	"code.cloudfoundry.org/nfsbroker/nfsbrokerfakes"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"strings"
 )
 
 var _ = Describe("Broker", func() {
@@ -39,12 +40,18 @@ var _ = Describe("Broker", func() {
 
 	Context("when creating first time", func() {
 		BeforeEach(func() {
+			source := nfsbroker.NewNfsBrokerConfigDetails()
+			source.ReadConf("uid,gid", "", []string{"uid,gid"})
+			mounts := nfsbroker.NewNfsBrokerConfigDetails()
+			mounts.ReadConf("sloppy_mount,allow_other,allow_root,multithread,default_permissions,fusenfs_uid,fusenfs_gid", "sloppy_mount:true", []string{})
+
 			broker = nfsbroker.New(
 				logger,
 				"service-name", "service-id", "/fake-dir",
 				fakeOs,
 				nil,
 				fakeStore,
+				nfsbroker.NewNfsBrokerConfig(source, mounts),
 			)
 		})
 
@@ -232,12 +239,19 @@ var _ = Describe("Broker", func() {
 				_, err := broker.Provision(ctx, instanceID, provisionDetails, false)
 				Expect(err).NotTo(HaveOccurred())
 
-				bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{
+				parameters := map[string]interface{}{
 					nfsbroker.Username: "principal name",
 					nfsbroker.Secret:   "some keytab data",
 					"uid":              uid,
 					"gid":              gid,
-				},
+				}
+
+				rawParameters, jsonerr := json.Marshal(parameters)
+				Expect(jsonerr).NotTo(HaveOccurred())
+
+				bindDetails = brokerapi.BindDetails{
+					AppGUID:       "guid",
+					RawParameters: rawParameters,
 				}
 			})
 
@@ -247,16 +261,61 @@ var _ = Describe("Broker", func() {
 				mc := binding.VolumeMounts[0].Device.MountConfig
 				share, ok := mc["source"].(string)
 				Expect(ok).To(BeTrue())
-				Expect(share).To(Equal(fmt.Sprintf("nfs://server:/some-share?uid=%s&gid=%s", uid, gid)))
+				testUrl(share, "nfs://server:/some-share", []string{
+					fmt.Sprintf("uid=%s", uid),
+					fmt.Sprintf("gid=%s", gid),
+				})
+			})
+
+			Context("Given UID, GID and options to be pass to driver", func() {
+				BeforeEach(func() {
+					parameters := map[string]interface{}{
+						nfsbroker.Username: "principal name",
+						nfsbroker.Secret:   "some keytab data",
+						"uid":              uid,
+						"gid":              gid,
+						"sloppy_mount":     true,
+						"any_options":      "testSuccess",
+					}
+
+					rawParameters, jsonerr := json.Marshal(parameters)
+					Expect(jsonerr).NotTo(HaveOccurred())
+
+					bindDetails = brokerapi.BindDetails{
+						AppGUID:       "guid",
+						RawParameters: rawParameters,
+					}
+				})
+
+				It("passes with options", func() {
+					binding, err := broker.Bind(ctx, instanceID, "binding-id", bindDetails)
+					Expect(err).NotTo(HaveOccurred())
+					mc := binding.VolumeMounts[0].Device.MountConfig
+					share, ok := mc["source"].(string)
+					Expect(ok).To(BeTrue())
+					testUrl(share, "nfs://server:/some-share", []string{
+						fmt.Sprintf("uid=%s", uid),
+						fmt.Sprintf("gid=%s", gid),
+					})
+					_, ok = mc["any_options"].(string)
+					Expect(ok).To(BeFalse())
+				})
 			})
 
 			Context("given the uid is not supplied", func() {
 				BeforeEach(func() {
-					bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{
+					parameters := map[string]interface{}{
 						nfsbroker.Username: "principal name",
 						nfsbroker.Secret:   "some keytab data",
 						"gid":              gid,
-					},
+					}
+
+					rawParameters, jsonerr := json.Marshal(parameters)
+					Expect(jsonerr).NotTo(HaveOccurred())
+
+					bindDetails = brokerapi.BindDetails{
+						AppGUID:       "guid",
+						RawParameters: rawParameters,
 					}
 				})
 
@@ -268,11 +327,18 @@ var _ = Describe("Broker", func() {
 
 			Context("given the gid is not supplied", func() {
 				BeforeEach(func() {
-					bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{
+					parameters := map[string]interface{}{
 						nfsbroker.Username: "principal name",
 						nfsbroker.Secret:   "some keytab data",
 						"uid":              uid,
-					},
+					}
+
+					rawParameters, jsonerr := json.Marshal(parameters)
+					Expect(jsonerr).NotTo(HaveOccurred())
+
+					bindDetails = brokerapi.BindDetails{
+						AppGUID:       "guid",
+						RawParameters: rawParameters,
 					}
 				})
 
@@ -296,7 +362,22 @@ var _ = Describe("Broker", func() {
 			})
 
 			It("flows container path through", func() {
-				bindDetails.Parameters["mount"] = "/var/vcap/otherdir/something"
+				parameters := map[string]interface{}{
+					nfsbroker.Username: "principal name",
+					nfsbroker.Secret:   "some keytab data",
+					"gid":              gid,
+					"uid":              uid,
+					"mount":            "/var/vcap/otherdir/something",
+				}
+
+				rawParameters, jsonerr := json.Marshal(parameters)
+				Expect(jsonerr).NotTo(HaveOccurred())
+
+				bindDetails = brokerapi.BindDetails{
+					AppGUID:       "guid",
+					RawParameters: rawParameters,
+				}
+
 				binding, err := broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(binding.VolumeMounts[0].ContainerDir).To(Equal("/var/vcap/otherdir/something"))
@@ -309,7 +390,22 @@ var _ = Describe("Broker", func() {
 			})
 
 			It("sets mode to `r` when readonly is true", func() {
-				bindDetails.Parameters["readonly"] = true
+				parameters := map[string]interface{}{
+					nfsbroker.Username: "principal name",
+					nfsbroker.Secret:   "some keytab data",
+					"gid":              gid,
+					"uid":              uid,
+					"readonly":         true,
+				}
+
+				rawParameters, jsonerr := json.Marshal(parameters)
+				Expect(jsonerr).NotTo(HaveOccurred())
+
+				bindDetails = brokerapi.BindDetails{
+					AppGUID:       "guid",
+					RawParameters: rawParameters,
+				}
+
 				binding, err := broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 				Expect(err).NotTo(HaveOccurred())
 
@@ -325,7 +421,22 @@ var _ = Describe("Broker", func() {
 			})
 
 			It("errors if mode is not a boolean", func() {
-				bindDetails.Parameters["readonly"] = ""
+				parameters := map[string]interface{}{
+					nfsbroker.Username: "principal name",
+					nfsbroker.Secret:   "some keytab data",
+					"gid":              gid,
+					"uid":              uid,
+					"readonly":         "",
+				}
+
+				rawParameters, jsonerr := json.Marshal(parameters)
+				Expect(jsonerr).NotTo(HaveOccurred())
+
+				bindDetails = brokerapi.BindDetails{
+					AppGUID:       "guid",
+					RawParameters: rawParameters,
+				}
+
 				_, err := broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 				Expect(err).To(Equal(brokerapi.ErrRawParamsInvalid))
 			})
@@ -364,7 +475,7 @@ var _ = Describe("Broker", func() {
 
 			Context("given another binding with the same share", func() {
 				var (
-					err error
+					err       error
 					bindSpec1 brokerapi.Binding
 				)
 
@@ -378,8 +489,21 @@ var _ = Describe("Broker", func() {
 						bindSpec2 brokerapi.Binding
 					)
 					BeforeEach(func() {
-						bindDetails.Parameters["uid"] = "3000"
-						bindDetails.Parameters["gid"] = "3000"
+						parameters := map[string]interface{}{
+							nfsbroker.Username: "principal name",
+							nfsbroker.Secret:   "some keytab data",
+							"gid":              "3000",
+							"uid":              "3000",
+						}
+
+						rawParameters, jsonerr := json.Marshal(parameters)
+						Expect(jsonerr).NotTo(HaveOccurred())
+
+						bindDetails = brokerapi.BindDetails{
+							AppGUID:       "guid",
+							RawParameters: rawParameters,
+						}
+
 						bindSpec2, err = broker.Bind(ctx, "some-instance-id", "binding-id-2", bindDetails)
 						Expect(err).NotTo(HaveOccurred())
 					})
@@ -420,7 +544,20 @@ var _ = Describe("Broker", func() {
 				_, err = broker.Provision(ctx, instanceID, provisionDetails, false)
 				Expect(err).NotTo(HaveOccurred())
 
-				bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{nfsbroker.Username: "principal name", nfsbroker.Secret: "some keytab data", "uid": "1000", "gid": "1000"}}
+				parameters := map[string]interface{}{
+					nfsbroker.Username: "principal name",
+					nfsbroker.Secret:   "some keytab data",
+					"gid":              "1000",
+					"uid":              "1000",
+				}
+
+				rawParameters, jsonerr := json.Marshal(parameters)
+				Expect(jsonerr).NotTo(HaveOccurred())
+
+				bindDetails = brokerapi.BindDetails{
+					AppGUID:       "guid",
+					RawParameters: rawParameters,
+				}
 
 				_, err = broker.Bind(ctx, "some-instance-id", "binding-id", bindDetails)
 				Expect(err).NotTo(HaveOccurred())
@@ -455,7 +592,21 @@ var _ = Describe("Broker", func() {
 		var bindDetails brokerapi.BindDetails
 
 		BeforeEach(func() {
-			bindDetails = brokerapi.BindDetails{AppGUID: "guid", Parameters: map[string]interface{}{nfsbroker.Username: "principal name", nfsbroker.Secret: "some keytab data", "uid": "1000", "gid": "1000"}}
+			parameters := map[string]interface{}{
+				nfsbroker.Username: "principal name",
+				nfsbroker.Secret:   "some keytab data",
+				"gid":              "1000",
+				"uid":              "1000",
+				"readonly":         true,
+			}
+
+			rawParameters, jsonerr := json.Marshal(parameters)
+			Expect(jsonerr).NotTo(HaveOccurred())
+
+			bindDetails = brokerapi.BindDetails{
+				AppGUID:       "guid",
+				RawParameters: rawParameters,
+			}
 		})
 		It("should be able to bind to previously created service", func() {
 			fileContents := nfsbroker.DynamicState{
@@ -472,12 +623,18 @@ var _ = Describe("Broker", func() {
 				return nil
 			}
 
+			source := nfsbroker.NewNfsBrokerConfigDetails()
+			source.ReadConf("uid,gid", "", []string{"uid,gid"})
+			mounts := nfsbroker.NewNfsBrokerConfigDetails()
+			mounts.ReadConf("sloppy_mount,allow_other,allow_root,multithread,default_permissions,fusenfs_uid,fusenfs_gid", "sloppy_mount:true", []string{})
+
 			broker = nfsbroker.New(
 				logger,
 				"service-name", "service-id", "/fake-dir",
 				fakeOs,
 				nil,
 				fakeStore,
+				nfsbroker.NewNfsBrokerConfig(source, mounts),
 			)
 
 			_, err := broker.Bind(ctx, "service-name", "whatever", bindDetails)
@@ -486,3 +643,37 @@ var _ = Describe("Broker", func() {
 	})
 
 })
+
+func testUrl(url string, baseUrl string, params []string) {
+	urlPart := strings.SplitN(url, "?", 2)
+
+	if len(params) > 0 {
+		Expect(len(urlPart)).To(Equal(2))
+	} else {
+		Expect(len(urlPart)).To(Equal(1))
+	}
+
+	Expect(urlPart[0]).To(Equal(baseUrl))
+
+	if len(params) > 0 {
+		paramsPart := strings.Split(urlPart[1], "&")
+
+		for _, p := range params {
+			Expect(inArray(p, paramsPart)).To(BeTrue())
+		}
+
+		for _, p := range paramsPart {
+			Expect(inArray(p, params)).To(BeTrue())
+		}
+	}
+}
+
+func inArray(search string, array []string) bool {
+	for _, v := range array {
+		if v == search {
+			return true
+		}
+	}
+
+	return false
+}
