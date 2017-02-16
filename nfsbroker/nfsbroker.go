@@ -60,7 +60,7 @@ type Broker struct {
 	static  staticState
 	dynamic DynamicState
 	store   Store
-        config 	Config
+	config  Config
 }
 
 func New(
@@ -69,7 +69,7 @@ func New(
 	os osshim.Os,
 	clock clock.Clock,
 	store Store,
-        config **Config,
+	config *Config,
 ) *Broker {
 
 	theBroker := Broker{
@@ -87,7 +87,7 @@ func New(
 			InstanceMap: map[string]ServiceInstance{},
 			BindingMap:  map[string]brokerapi.BindDetails{},
 		},
-		config: **config,
+		config: *config,
 	}
 
 	theBroker.store.Restore(logger, &theBroker.dynamic)
@@ -218,28 +218,24 @@ func (b *Broker) Bind(context context.Context, instanceID string, bindingID stri
 
 	source := fmt.Sprintf("nfs://%s", instanceDetails.Share)
 
-	if err := b.config.setEntries(source, parameters, []string{
-		"share","mount","kerberosPrincipal","kerberosKeytab","readonly",
+	if err := b.config.SetEntries(source, parameters, []string{
+		"share", "mount", "kerberosPrincipal", "kerberosKeytab", "readonly",
 	}); err != nil {
 		logger.Debug("parse-entries", lager.Data{
-			"given_share": source,
-			"given_options": parameters,
-			"source.allowed": b.config.source.allowed,
-			"source.options": b.config.source.options,
-			"source.forced":  b.config.source.forced,
-			"mount.allowed": b.config.mount.allowed,
-			"mount.options": b.config.mount.options,
-			"mount.forced":  b.config.mount.forced,
-			"sloppy_mount": b.config.sloppyMount,
+			"given_source":   source,
+			"given_options":  parameters,
+			"source": b.config.source,
+			"mount":  b.config.mount,
+			"sloppy_mount":   b.config.sloppyMount,
 		})
-		return brokerapi.Binding{}, err;
+		return brokerapi.Binding{}, err
 	}
 
-	mountConfig := b.config.getMountConfig();
-	mountConfig["source"] = b.config.getShare(source)
+	mountConfig := b.config.GetMountConfig()
+	mountConfig["source"] = b.config.GetShare(source)
 
 	logger.Info("Volume Service Binding", lager.Data{"Driver": "nfsv3driver", "MountConfig": mountConfig})
-	
+
 	s, err := b.hash(mountConfig)
 	if err != nil {
 		logger.Error("error-calculating-volume-id", err, lager.Data{"config": mountConfig, "bindingID": bindingID, "instanceID": instanceID})
@@ -358,4 +354,3 @@ func readOnlyToMode(ro bool) string {
 	}
 	return "rw"
 }
-

@@ -40,16 +40,18 @@ var _ = Describe("Broker", func() {
 
 	Context("when creating first time", func() {
 		BeforeEach(func() {
+			source := nfsbroker.NewNfsBrokerConfigDetails()
+			source.ReadConf("uid,gid", "", []string{"uid,gid"})
+			mounts := nfsbroker.NewNfsBrokerConfigDetails()
+			mounts.ReadConf("sloppy_mount,allow_other,allow_root,multithread,default_permissions,fusenfs_uid,fusenfs_gid", "sloppy_mount:true", []string{})
+
 			broker = nfsbroker.New(
 				logger,
 				"service-name", "service-id", "/fake-dir",
 				fakeOs,
 				nil,
 				fakeStore,
-				nfsbroker.NewNfsBrokerConfig(
-					[]string{"uid,gid", ""},
-					[]string{"sloppy_mount,allow_other,allow_root,multithread,default_permissions,fusenfs_uid,fusenfs_gid", "sloppy_mount:true"},
-				),
+				nfsbroker.NewNfsBrokerConfig(source, mounts),
 			)
 		})
 
@@ -248,7 +250,7 @@ var _ = Describe("Broker", func() {
 				Expect(jsonerr).NotTo(HaveOccurred())
 
 				bindDetails = brokerapi.BindDetails{
-					AppGUID: "guid",
+					AppGUID:       "guid",
 					RawParameters: rawParameters,
 				}
 			})
@@ -280,7 +282,7 @@ var _ = Describe("Broker", func() {
 					Expect(jsonerr).NotTo(HaveOccurred())
 
 					bindDetails = brokerapi.BindDetails{
-						AppGUID: "guid",
+						AppGUID:       "guid",
 						RawParameters: rawParameters,
 					}
 				})
@@ -312,7 +314,7 @@ var _ = Describe("Broker", func() {
 					Expect(jsonerr).NotTo(HaveOccurred())
 
 					bindDetails = brokerapi.BindDetails{
-						AppGUID: "guid",
+						AppGUID:       "guid",
 						RawParameters: rawParameters,
 					}
 				})
@@ -335,7 +337,7 @@ var _ = Describe("Broker", func() {
 					Expect(jsonerr).NotTo(HaveOccurred())
 
 					bindDetails = brokerapi.BindDetails{
-						AppGUID: "guid",
+						AppGUID:       "guid",
 						RawParameters: rawParameters,
 					}
 				})
@@ -372,7 +374,7 @@ var _ = Describe("Broker", func() {
 				Expect(jsonerr).NotTo(HaveOccurred())
 
 				bindDetails = brokerapi.BindDetails{
-					AppGUID: "guid",
+					AppGUID:       "guid",
 					RawParameters: rawParameters,
 				}
 
@@ -400,7 +402,7 @@ var _ = Describe("Broker", func() {
 				Expect(jsonerr).NotTo(HaveOccurred())
 
 				bindDetails = brokerapi.BindDetails{
-					AppGUID: "guid",
+					AppGUID:       "guid",
 					RawParameters: rawParameters,
 				}
 
@@ -431,7 +433,7 @@ var _ = Describe("Broker", func() {
 				Expect(jsonerr).NotTo(HaveOccurred())
 
 				bindDetails = brokerapi.BindDetails{
-					AppGUID: "guid",
+					AppGUID:       "guid",
 					RawParameters: rawParameters,
 				}
 
@@ -473,7 +475,7 @@ var _ = Describe("Broker", func() {
 
 			Context("given another binding with the same share", func() {
 				var (
-					err error
+					err       error
 					bindSpec1 brokerapi.Binding
 				)
 
@@ -498,7 +500,7 @@ var _ = Describe("Broker", func() {
 						Expect(jsonerr).NotTo(HaveOccurred())
 
 						bindDetails = brokerapi.BindDetails{
-							AppGUID: "guid",
+							AppGUID:       "guid",
 							RawParameters: rawParameters,
 						}
 
@@ -553,7 +555,7 @@ var _ = Describe("Broker", func() {
 				Expect(jsonerr).NotTo(HaveOccurred())
 
 				bindDetails = brokerapi.BindDetails{
-					AppGUID: "guid",
+					AppGUID:       "guid",
 					RawParameters: rawParameters,
 				}
 
@@ -602,7 +604,7 @@ var _ = Describe("Broker", func() {
 			Expect(jsonerr).NotTo(HaveOccurred())
 
 			bindDetails = brokerapi.BindDetails{
-				AppGUID: "guid",
+				AppGUID:       "guid",
 				RawParameters: rawParameters,
 			}
 		})
@@ -621,16 +623,18 @@ var _ = Describe("Broker", func() {
 				return nil
 			}
 
+			source := nfsbroker.NewNfsBrokerConfigDetails()
+			source.ReadConf("uid,gid", "", []string{"uid,gid"})
+			mounts := nfsbroker.NewNfsBrokerConfigDetails()
+			mounts.ReadConf("sloppy_mount,allow_other,allow_root,multithread,default_permissions,fusenfs_uid,fusenfs_gid", "sloppy_mount:true", []string{})
+
 			broker = nfsbroker.New(
 				logger,
 				"service-name", "service-id", "/fake-dir",
 				fakeOs,
 				nil,
 				fakeStore,
-				nfsbroker.NewNfsBrokerConfig(
-					[]string{"uid,gid", ""},
-					[]string{"sloppy_mount,fusenfs_uid,fusenfs_gid,multithread,default_permissions", "sloppy_mount:true"},
-				),
+				nfsbroker.NewNfsBrokerConfig(source, mounts),
 			)
 
 			_, err := broker.Bind(ctx, "service-name", "whatever", bindDetails)
@@ -654,18 +658,18 @@ func testUrl(url string, baseUrl string, params []string) {
 	if len(params) > 0 {
 		paramsPart := strings.Split(urlPart[1], "&")
 
-		for _,p := range params {
+		for _, p := range params {
 			Expect(inArray(p, paramsPart)).To(BeTrue())
 		}
 
-		for _,p := range paramsPart {
+		for _, p := range paramsPart {
 			Expect(inArray(p, params)).To(BeTrue())
 		}
 	}
 }
 
-func inArray (search string, array []string) bool {
-	for _,v := range array {
+func inArray(search string, array []string) bool {
+	for _, v := range array {
 		if v == search {
 			return true
 		}

@@ -1,29 +1,37 @@
 package nfsbroker
 
 import (
-	"strconv"
-	"fmt"
-	"strings"
 	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 )
 
-type ConfigDetails struct {
-	allowed  []string
-	forced   map[string]string
-	options  map[string]string
 
-	mandatory   []string
+
+type ConfigDetails struct {
+	Allowed []string
+	Forced  map[string]string
+	Options map[string]string
+
+	mandatory []string
 }
 
 type Config struct {
-	source      ConfigDetails
-	mount       ConfigDetails
+	source ConfigDetails
+	mount  ConfigDetails
 
 	sloppyMount bool
 }
 
+type ConfigExtended struct {
+	Config
+
+	toto 	int8
+}
+
 func inArray(list []string, key string) bool {
-	for _,k := range list {
+	for _, k := range list {
 		if k == key {
 			return true
 		}
@@ -32,54 +40,32 @@ func inArray(list []string, key string) bool {
 	return false
 }
 
-func NewNfsBrokerConfig(sourceFlag []string, mountFlag []string) **Config {
+func NewNfsBrokerConfig(sourceDetails *ConfigDetails, mountDetails *ConfigDetails) *Config {
 	myConf := new(Config)
-	myConf.readConfAllowed(sourceFlag[0], mountFlag[0])
-	myConf.readConfDefault(sourceFlag[1], mountFlag[1])
-	myConf.source.mandatory = []string{
-		"uid","gid",
-	}
 
-	return &myConf
+	myConf.source = *sourceDetails
+	myConf.mount = *mountDetails
+	myConf.sloppyMount = false
+
+	return myConf
 }
 
-func (m *Config) readConfAllowed(sourceFlag string, mountFlag string) error {
-	if err := m.source.readConfAllowed(sourceFlag); err != nil {
-		return  err
-	}
-
-	if err := m.mount.readConfAllowed(mountFlag); err != nil {
-		return  err
-	}
-
-	return nil
+func NewNfsBrokerConfigDetails() *ConfigDetails {
+	myConf := new(ConfigDetails)
+	return myConf
 }
 
-func (m *Config) readConfDefault(sourceFlag string, mountFlag string) error {
-	if err := m.source.readConfDefault(sourceFlag); err != nil {
-		return  err
-	}
-
-	if err := m.mount.readConfDefault(mountFlag); err != nil {
-		return  err
-	}
-
-	m.sloppyMount = m.mount.isSloppyMount()
-
-	return nil
-}
-
-func (m * Config) setEntries(share string, opts map[string]interface{}, ignoreList []string) error {
+func (m *Config) SetEntries(share string, opts map[string]interface{}, ignoreList []string) error {
 
 	m.source.parseMap(opts, ignoreList)
 	m.mount.parseMap(opts, ignoreList)
 
-	allowed 	:= append(ignoreList, m.source.allowed...)
-	allowed 	 = append(allowed, m.mount.allowed...)
-	errorList 	:= m.source.parseUrl(share, ignoreList)
-	m.sloppyMount 	 = m.mount.isSloppyMount()
+	allowed := append(ignoreList, m.source.Allowed...)
+	allowed = append(allowed, m.mount.Allowed...)
+	errorList := m.source.parseUrl(share, ignoreList)
+	m.sloppyMount = m.mount.IsSloppyMount()
 
-	for k,_ := range opts {
+	for k, _ := range opts {
 		if !inArray(allowed, k) {
 			errorList = append(errorList, k)
 		}
@@ -90,7 +76,7 @@ func (m * Config) setEntries(share string, opts map[string]interface{}, ignoreLi
 		return err
 	}
 
-	if mdtErr := append(m.source.getMissMandatory(), m.mount.getMissMandatory()...); len(mdtErr) > 0 {
+	if mdtErr := append(m.source.CheckMandatory(), m.mount.CheckMandatory()...); len(mdtErr) > 0 {
 		err := errors.New("Missing mandatory options : " + strings.Join(mdtErr, ", "))
 		return err
 	}
@@ -98,7 +84,7 @@ func (m * Config) setEntries(share string, opts map[string]interface{}, ignoreLi
 	return nil
 }
 
-func (m *Config) getShare(share string) string {
+func (m *Config) GetShare(share string) string {
 
 	srcPart := strings.SplitN(share, "?", 2)
 
@@ -115,54 +101,65 @@ func (m *Config) getShare(share string) string {
 	return strings.Join(srcPart, "?")
 }
 
-func (m *Config) getMount() []string {
+func (m *Config) GetMount() []string {
 
 	return m.mount.makeParams("--")
 }
 
-func (m *Config) getMountConfig() map[string]interface{} {
+func (m *Config) GetMountConfig() map[string]interface{} {
 
 	return m.mount.makeConfig()
 }
 
 func (m *ConfigDetails) readConfAllowed(flagString string) error {
-	m.allowed = strings.Split(flagString, ",")
+	if len(flagString) > 0 {
+		m.Allowed = strings.Split(flagString, ",")
+	}
+
 	return nil
 }
 
 func (m *ConfigDetails) readConfDefault(flagString string) error {
-	m.options = m.parseConfig(strings.Split(flagString, ","))
-	m.forced  = make(map[string]string)
+	if len(flagString) < 1 {
+		return nil
+	}
 
-	for k,v := range m.options {
-		if !inArray(m.allowed, k) {
-			m.forced[k] = v
-			delete(m.options, k)
+	m.Options = m.parseConfig(strings.Split(flagString, ","))
+	m.Forced = make(map[string]string)
+
+	for k, v := range m.Options {
+		if !inArray(m.Allowed, k) {
+			m.Forced[k] = v
+			delete(m.Options, k)
 		}
 	}
 
 	return nil
 }
 
-func (m *ConfigDetails) readConf(flagString []string) error {
-	if err := m.readConfAllowed(flagString[0]); err != nil {
+func (m *ConfigDetails) ReadConf(allowedFlag string, defaultFlag string, mandatoryFields []string) error {
+	if err := m.readConfAllowed(allowedFlag); err != nil {
 		return err
 	}
 
-	if err := m.readConfDefault(flagString[1]); err != nil {
+	if err := m.readConfDefault(defaultFlag); err != nil {
 		return err
+	}
+
+	if len(mandatoryFields) > 0 {
+		m.mandatory = mandatoryFields
 	}
 
 	return nil
 }
 
-func (m *ConfigDetails) getMissMandatory() []string {
-	result := []string{}
+func (m *ConfigDetails) CheckMandatory() []string {
+	var result []string
 
-	for _,k := range m.mandatory {
+	for _, k := range m.mandatory {
 
-		_,oko := m.options[k];
-		_,okf := m.forced[k];
+		_, oko := m.Options[k]
+		_, okf := m.Forced[k]
 
 		if !okf && !oko {
 			result = append(result, k)
@@ -176,7 +173,7 @@ func (m *ConfigDetails) parseConfig(listEntry []string) map[string]string {
 
 	result := map[string]string{}
 
-	for _,opt := range listEntry {
+	for _, opt := range listEntry {
 
 		key := strings.SplitN(opt, ":", 2)
 
@@ -194,23 +191,23 @@ func (m *ConfigDetails) parseConfig(listEntry []string) map[string]string {
 	return result
 }
 
-func (m *ConfigDetails) isSloppyMount() bool {
+func (m *ConfigDetails) IsSloppyMount() bool {
 
-	spm  := "";
-	ok := false;
+	spm := ""
+	ok := false
 
-	if _, ok = m.options["sloppy_mount"]; ok {
-		spm = m.options["sloppy_mount"];
-		delete(m.options, "sloppy_mount")
+	if _, ok = m.Options["sloppy_mount"]; ok {
+		spm = m.Options["sloppy_mount"]
+		delete(m.Options, "sloppy_mount")
 	}
 
-	if _, ok = m.forced["sloppy_mount"]; ok {
-		spm = m.forced["sloppy_mount"];
-		delete(m.forced, "sloppy_mount")
+	if _, ok = m.Forced["sloppy_mount"]; ok {
+		spm = m.Forced["sloppy_mount"]
+		delete(m.Forced, "sloppy_mount")
 	}
 
 	if len(spm) > 0 {
-		if val,err := strconv.ParseBool(spm); err == nil {
+		if val, err := strconv.ParseBool(spm); err == nil {
 			return val
 		}
 	}
@@ -218,7 +215,7 @@ func (m *ConfigDetails) isSloppyMount() bool {
 	return false
 }
 
-func (m *ConfigDetails) uniformKeyData (key string, data interface{}) string {
+func (m *ConfigDetails) uniformKeyData(key string, data interface{}) string {
 	switch key {
 	case "auto-traverse-mounts":
 		return m.uniformData(data, true)
@@ -231,7 +228,7 @@ func (m *ConfigDetails) uniformKeyData (key string, data interface{}) string {
 	return m.uniformData(data, false)
 }
 
-func (m *ConfigDetails) uniformData (data interface{}, boolAsInt bool) string {
+func (m *ConfigDetails) uniformData(data interface{}, boolAsInt bool) string {
 
 	switch data.(type) {
 	case int:
@@ -255,7 +252,7 @@ func (m *ConfigDetails) uniformData (data interface{}, boolAsInt bool) string {
 	return ""
 }
 
-func (m *ConfigDetails) parseUrl (url string, ignoreList []string) []string {
+func (m *ConfigDetails) parseUrl(url string, ignoreList []string) []string {
 
 	var errorList []string
 
@@ -275,23 +272,23 @@ func (m *ConfigDetails) parseUrl (url string, ignoreList []string) []string {
 	return errorList
 }
 
-func (m *ConfigDetails) parseUrlParams (urlParams string, ignoreList []string) string {
+func (m *ConfigDetails) parseUrlParams(urlParams string, ignoreList []string) string {
 
 	op := strings.SplitN(urlParams, "=", 2)
 
-	if len (op) < 2 || len(op[1]) < 1 || op[1] == "" || inArray(ignoreList, op[0]) {
+	if len(op) < 2 || len(op[1]) < 1 || op[1] == "" || inArray(ignoreList, op[0]) {
 		return ""
 	}
 
-	if inArray(m.allowed, op[0]) {
-		m.options[op[0]] = m.uniformKeyData(op[0], op[1])
+	if inArray(m.Allowed, op[0]) {
+		m.Options[op[0]] = m.uniformKeyData(op[0], op[1])
 		return ""
 	}
 
 	return op[0]
 }
 
-func (m *ConfigDetails) parseMap (entryList map[string]interface{}, ignoreList []string) []string {
+func (m *ConfigDetails) parseMap(entryList map[string]interface{}, ignoreList []string) []string {
 
 	var errorList []string
 
@@ -299,12 +296,12 @@ func (m *ConfigDetails) parseMap (entryList map[string]interface{}, ignoreList [
 
 		value := m.uniformData(v, false)
 
-		if value == ""  || inArray(ignoreList, k) {
+		if value == "" || inArray(ignoreList, k) {
 			continue
 		}
 
-		if inArray(m.allowed, k) {
-			m.options[k] = value
+		if inArray(m.Allowed, k) {
+			m.Options[k] = value
 		} else {
 			errorList = append(errorList, k)
 		}
@@ -313,10 +310,10 @@ func (m *ConfigDetails) parseMap (entryList map[string]interface{}, ignoreList [
 	return errorList
 }
 
-func (m *ConfigDetails) makeParams (prefix string) []string {
+func (m *ConfigDetails) makeParams(prefix string) []string {
 	params := []string{}
 
-	for k,v := range m.makeConfig() {
+	for k, v := range m.makeConfig() {
 
 		if k == "sloppy_mount" {
 			continue
@@ -340,18 +337,17 @@ func (m *ConfigDetails) makeParams (prefix string) []string {
 	return params
 }
 
-func (m *ConfigDetails) makeConfig () map[string]interface{} {
+func (m *ConfigDetails) makeConfig() map[string]interface{} {
 
 	params := map[string]interface{}{}
 
-	for k,v := range m.options {
+	for k, v := range m.Options {
 		params[k] = v
 	}
 
-	for k,v := range m.forced {
+	for k, v := range m.Forced {
 		params[k] = v
 	}
 
 	return params
 }
-

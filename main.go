@@ -16,13 +16,13 @@ import (
 
 	"path/filepath"
 
+	"encoding/json"
 	"github.com/go-sql-driver/mysql"
 	"github.com/lib/pq"
 	"github.com/pivotal-cf/brokerapi"
 	"github.com/tedsuo/ifrit"
 	"github.com/tedsuo/ifrit/grouper"
 	"github.com/tedsuo/ifrit/http_server"
-	"encoding/json"
 )
 
 var dataDir = flag.String(
@@ -208,12 +208,22 @@ func createServer(logger lager.Logger) ifrit.Runner {
 
 	store := nfsbroker.NewStore(logger, *dbDriver, *dbUsername, *dbPassword, *dbHostname, *dbPort, *dbName, *dbCACert, fileName)
 
-	serviceBroker := nfsbroker.New(logger,
-		*serviceName, *serviceId,
-		*dataDir, &osshim.OsShim{}, clock.NewClock(), store, nfsbroker.NewNfsBrokerConfig(
-			[]string{*sourceFlagAllowed, *sourceFlagDefault},
-			[]string{*mountFlagAllowed, *mountFlagDefault},
-		))
+	source := nfsbroker.NewNfsBrokerConfigDetails()
+	source.ReadConf(*sourceFlagAllowed, *sourceFlagDefault, []string{"uid", "gid"})
+
+	mounts := nfsbroker.NewNfsBrokerConfigDetails()
+	mounts.ReadConf(*mountFlagAllowed, *mountFlagDefault, []string{})
+
+	serviceBroker := nfsbroker.New(
+		logger,
+		*serviceName,
+		*serviceId,
+		*dataDir,
+		&osshim.OsShim{},
+		clock.NewClock(),
+		store,
+		nfsbroker.NewNfsBrokerConfig(source, mounts),
+	)
 
 	credentials := brokerapi.BrokerCredentials{Username: *username, Password: *password}
 	handler := brokerapi.New(serviceBroker, logger.Session("broker-api"), credentials)
